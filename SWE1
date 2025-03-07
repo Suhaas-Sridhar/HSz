@@ -1,0 +1,114 @@
+// Order structure
+typedef struct Order {
+    char orderType; // 'B' for Buy, 'S' for Sell
+    char ticker[10];
+    int quantity;
+    double price;
+    struct Order* next;
+} Order;
+
+// Order Book
+typedef struct {
+    Order* buyHead;  // Descending order
+    Order* sellHead; // Ascending order
+    pthread_mutex_t lock;
+} OrderBook;
+
+OrderBook orderBook = {NULL, NULL, PTHREAD_MUTEX_INITIALIZER};
+
+// Function to create a new order
+Order* create_order(char orderType, const char* ticker, int quantity, double price) {
+    Order* newOrder = (Order*)malloc(sizeof(Order));
+    newOrder->orderType = orderType;
+    snprintf(newOrder->ticker, sizeof(newOrder->ticker), "%s", ticker);
+    newOrder->quantity = quantity;
+    newOrder->price = price;
+    newOrder->next = NULL;
+    return newOrder;
+}
+
+// Function to add an order to the order book
+void add_order(char orderType, const char* ticker, int quantity, double price) {
+    Order* newOrder = create_order(orderType, ticker, quantity, price);
+    pthread_mutex_lock(&orderBook.lock);
+    if (orderType == 'B') { // Buy Order
+        if (!orderBook.buyHead || orderBook.buyHead->price < price) {
+            newOrder->next = orderBook.buyHead;
+            orderBook.buyHead = newOrder;
+        } else {
+            Order *prev = NULL, *current = orderBook.buyHead;
+            while (current && current->price >= price) {
+                prev = current;
+                current = current->next;
+            }
+            newOrder->next = current;
+            if (prev) prev->next = newOrder;
+        }
+    } else { // Sell Order
+        if (!orderBook.sellHead || orderBook.sellHead->price > price) {
+            newOrder->next = orderBook.sellHead;
+            orderBook.sellHead = newOrder;
+        } else {
+            Order *prev = NULL, *current = orderBook.sellHead;
+            while (current && current->price <= price) {
+                prev = current;
+                current = current->next;
+            }
+            newOrder->next = current;
+            if (prev) prev->next = newOrder;
+        }
+    }
+    pthread_mutex_unlock(&orderBook.lock);
+}
+
+// Function to match orders
+void match_orders() {
+    pthread_mutex_lock(&orderBook.lock);
+    while (orderBook.buyHead && orderBook.sellHead && orderBook.buyHead->price >= orderBook.sellHead->price) {
+        int matchedQuantity = orderBook.buyHead->quantity < orderBook.sellHead->quantity ? orderBook.buyHead->quantity : orderBook.sellHead->quantity;
+        printf("Matched: %d shares of %s at %.2f\n", matchedQuantity, orderBook.buyHead->ticker, orderBook.sellHead->price);
+        orderBook.buyHead->quantity -= matchedQuantity;
+        orderBook.sellHead->quantity -= matchedQuantity;
+        if (orderBook.buyHead->quantity == 0) {
+            Order* temp = orderBook.buyHead;
+            orderBook.buyHead = orderBook.buyHead->next;
+            free(temp);
+        }
+        if (orderBook.sellHead->quantity == 0) {
+            Order* temp = orderBook.sellHead;
+            orderBook.sellHead = orderBook.sellHead->next;
+            free(temp);
+        }
+    }
+    pthread_mutex_unlock(&orderBook.lock);
+}
+
+// Simulate stock trading
+void* simulate_trading(void* arg) {
+    char tickers[MAX_TICKERS][10];
+    for (int i = 0; i < MAX_TICKERS; i++) {
+        snprintf(tickers[i], sizeof(tickers[i]), "Stock%d", i + 1);
+    }
+    while (true) {
+        char orderType = (rand() % 2) ? 'B' : 'S';
+        const char* ticker = tickers[rand() % MAX_TICKERS];
+        int quantity = (rand() % 100) + 1;
+        double price = 10 + ((double)rand() / RAND_MAX) * (500 - 10);
+        add_order(orderType, ticker, quantity, price);
+        match_orders();
+        usleep((rand() % 90 + 10) * 1000);
+    }
+    return NULL;
+}
+
+int main() {
+    srand(time(NULL));
+    pthread_t threads[5];
+    for (int i = 0; i < 5; i++) {
+        pthread_create(&threads[i], NULL, simulate_trading, NULL);
+    }
+    for (int i = 0; i < 5; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    return 0;
+}
