@@ -1,0 +1,137 @@
+/**
+ * Real-time Stock Trading Engine
+ * 
+ * This implementation satisfies the given problem statement:
+ * 1. Implements `addOrder` function to add Buy or Sell orders.
+ * 2. Uses a linked list structure without dictionary-like data structures.
+ * 3. Implements `matchOrder` function to match Buy and Sell orders with O(n) complexity.
+ * 4. Ensures thread safety using ReentrantLock for concurrency handling.
+ * 5. Simulates stock trading with multiple threads executing `addOrder` and `matchOrder`.
+ */
+
+class Order {
+    String orderType;
+    String ticker;
+    int quantity;
+    double price;
+    Order next;
+
+    public Order(String orderType, String ticker, int quantity, double price) {
+        this.orderType = orderType;
+        this.ticker = ticker;
+        this.quantity = quantity;
+        this.price = price;
+        this.next = null;
+    }
+}
+
+class OrderBook {
+    private Order buyHead;
+    private Order sellHead;
+    private final ReentrantLock lock = new ReentrantLock();
+
+    /**
+     * Adds a new Buy or Sell order to the order book.
+     */
+    public void addOrder(String orderType, String ticker, int quantity, double price) {
+        Order newOrder = new Order(orderType, ticker, quantity, price);
+        lock.lock();
+        try {
+            if (orderType.equals("Buy")) {
+                if (buyHead == null || buyHead.price < price) {
+                    newOrder.next = buyHead;
+                    buyHead = newOrder;
+                } else {
+                    Order prev = null, current = buyHead;
+                    while (current != null && current.price >= price) {
+                        prev = current;
+                        current = current.next;
+                    }
+                    newOrder.next = current;
+                    if (prev != null) prev.next = newOrder;
+                }
+            } else {
+                if (sellHead == null || sellHead.price > price) {
+                    newOrder.next = sellHead;
+                    sellHead = newOrder;
+                } else {
+                    Order prev = null, current = sellHead;
+                    while (current != null && current.price <= price) {
+                        prev = current;
+                        current = current.next;
+                    }
+                    newOrder.next = current;
+                    if (prev != null) prev.next = newOrder;
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Matches Buy and Sell orders based on price and executes trades.
+     * Ensures O(n) time complexity.
+     */
+    public void matchOrder() {
+        lock.lock();
+        try {
+            while (buyHead != null && sellHead != null && buyHead.price >= sellHead.price) {
+                int matchedQuantity = Math.min(buyHead.quantity, sellHead.quantity);
+                System.out.println("Matched: " + matchedQuantity + " shares of " + buyHead.ticker + " at " + sellHead.price);
+                buyHead.quantity -= matchedQuantity;
+                sellHead.quantity -= matchedQuantity;
+                if (buyHead.quantity == 0) buyHead = buyHead.next;
+                if (sellHead.quantity == 0) sellHead = sellHead.next;
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+
+public class StockTradingEngine {
+    private static final OrderBook orderBook = new OrderBook();
+    private static final Random random = new Random();
+    private static final String[] tickers = new String[1024];
+
+    static {
+        for (int i = 0; i < 1024; i++) {
+            tickers[i] = "Stock" + (i + 1);
+        }
+    }
+
+    /**
+     * Simulates real-time stock trading with random Buy and Sell orders.
+     */
+    public static void simulateTrading() {
+        while (true) {
+            String orderType = random.nextBoolean() ? "Buy" : "Sell";
+            String ticker = tickers[random.nextInt(1024)];
+            int quantity = random.nextInt(100) + 1;
+            double price = 10 + (500 - 10) * random.nextDouble();
+            orderBook.addOrder(orderType, ticker, quantity, price);
+            orderBook.matchOrder();
+            try {
+                Thread.sleep((long) (10 + 90 * random.nextDouble()));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        Thread[] threads = new Thread[5];
+        for (int i = 0; i < 5; i++) {
+            threads[i] = new Thread(StockTradingEngine::simulateTrading);
+            threads[i].start();
+        }
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
